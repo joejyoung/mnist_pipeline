@@ -1,0 +1,11 @@
+data/
+logs/
+models/
+mlruns/
+model_latest.pt
+__pycache__/
+*.pyc
+*.log
+.venv/
+
+
