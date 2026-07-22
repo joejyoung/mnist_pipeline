@@ -1,0 +1,72 @@
+# CI pipeline: the quality gate made automatic.
+#
+# Production concept: a model cannot reach serving unless this pipeline is green.
+#   train (smoke) → evaluate (GATE) → export → serve → contract tests
+# In a real system the final step would push the ONNX artifact to a registry and
+# trigger a canary deployment; here it just proves the whole path works.
+
+name: ml-pipeline
+on: [push, pull_request]
+
+jobs:
+  train-gate-serve:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mnist
+          POSTGRES_PASSWORD: mnist
+          POSTGRES_DB: experiments
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mnist"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps (CPU torch)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Smoke train (1 epoch — proves the pipeline, not the model)
+        env:
+          DATABASE_URL: postgresql://mnist:mnist@localhost:5432/experiments
+        run: |
+          python - <<'PY'
+          # CI has no MLflow server; stub tracking to local files
+          import mlflow, os
+          os.makedirs("mlruns", exist_ok=True)
+          PY
+          MLFLOW_TRACKING_URI=file:./mlruns python src/train.py --epochs 1 --run-name ci-${{ github.sha }}
+
+      - name: Quality gate (blocks merge on regression)
+        env:
+          DATABASE_URL: postgresql://mnist:mnist@localhost:5432/experiments
+        run: python src/evaluate.py --run-name ci-${{ github.sha }}
+
+      - name: Export ONNX artifact
+        run: python src/export_onnx.py --output models/model.onnx
+
+      - name: Boot serving + contract tests
+        env:
+          DATABASE_URL: postgresql://mnist:mnist@localhost:5432/experiments
+          MODEL_PATH: models/model.onnx
+        run: |
+          pip install -r serving/requirements.txt pytest
+          uvicorn serving.app:app --port 8000 &
+          sleep 5
+          pytest tests/test_api_contract.py -v
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-onnx
+          path: models/model.onnx
