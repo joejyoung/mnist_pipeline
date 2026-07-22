@@ -22,8 +22,9 @@ from torchvision import datasets, transforms
 
 import db
 from model import MnistCNN
+import os
 
-MLFLOW_URI = "http://localhost:5000"
+MLFLOW_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")
 
 
 def get_loaders(batch_size):
