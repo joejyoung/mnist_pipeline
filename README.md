@@ -102,4 +102,4 @@ python monitoring/drift.py                  # prints PSI report; dashboard shows
 | FastAPI   | http://localhost:8000  |
 | MLflow    | http://localhost:5000  |
 | Dashboard | http://localhost:8501  |
-| Postgres  | localhost:5432         |
+| Postgres  | http://localhost:5432         |
